@@ -104,6 +104,9 @@ async function removerCarrinho(idProduto, quantidade, res) {
     }
 }
 
+function isNumber(n) {
+    return !isNaN(parseFloat(n)) && isFinite(n);
+}
 
 const lerProdutos = async (req, res) => {
     const { categoria, precoInicial, precoFinal } = req.query;
@@ -176,11 +179,112 @@ const alterarProdutoCarrinho = async (req, res) => {
     }
 }
 
+const removerProdutoCarrinho = async (req, res) => {
+    const idProduto = req.params.idProduto;
 
+    const leitura = (await fs.readFile('carrinho.json')).toString();
+    let novoCarrinho = JSON.parse(leitura);
+    const verificarCarrinho = novoCarrinho.produtos.filter(x => x.id === Number(idProduto));
+    if (verificarCarrinho.length === 0) {
+        res.status(404).json(`Não existe produto com Id ${idProduto} no carrinho.`)
+    } else {
+        const verificarIdProduto = novoCarrinho.produtos.findIndex(x => x.id === Number(idProduto));
+
+        novoCarrinho.produtos.splice(verificarIdProduto, 1);
+
+        novoCarrinho.subTotal -= (verificarCarrinho[0].preco * (verificarCarrinho[0].quantidade));
+        if (novoCarrinho.subTotal <= 20000) {
+            novoCarrinho.valorDoFrete = 5000;
+        } else {
+            novoCarrinho.valorDoFrete = 0;
+        }
+
+        novoCarrinho.totalAPagar = novoCarrinho.subTotal + novoCarrinho.valorDoFrete;
+        novoCarrinho.produtos.splice(verificarIdProduto, 1);
+
+        if (novoCarrinho.subTotal <= 0) {
+            novoCarrinho = {
+                "subTotal": 0,
+                "dataDeEntrega": "",
+                "valorDoFrete": 0,
+                "totalAPagar": 0,
+                "produtos": []
+            }
+        }
+        await fs.writeFile('carrinho.json', JSON.stringify(novoCarrinho))
+        return res.json(novoCarrinho);
+
+    }
+
+
+}
+
+const deletarCarrinho = async (req, res) => {
+    const leitura = (await fs.readFile('carrinho.json')).toString();
+    let novoCarrinho = JSON.parse(leitura);
+    novoCarrinho = {
+        "subTotal": 0,
+        "dataDeEntrega": "",
+        "valorDoFrete": 0,
+        "totalAPagar": 0,
+        "produtos": []
+    }
+
+    await fs.writeFile('carrinho.json', JSON.stringify(novoCarrinho))
+    return res.json({ mensagem: "O carrinho foi limpo com sucesso!" });
+
+
+}
+
+const finalizarCompra = async (req, res) => {
+    const body = req.body;
+    const produtos = (await fs.readFile("data.json")).toString();
+    const dadosProdutos = JSON.parse(produtos);
+    const leitura = (await fs.readFile('carrinho.json')).toString();
+    let novoCarrinho = JSON.parse(leitura);
+    if (novoCarrinho.subTotal === 0) {
+        res.json({ erro: 'Carrinho Vazio!' })
+
+    } else {
+        const produtos = (await fs.readFile("data.json")).toString();
+        const dadosProdutos = JSON.parse(produtos);
+        for (let i = 0; i < novoCarrinho.produtos.length; i++) {
+            if (novoCarrinho.produtos[i].id === dadosProdutos.produtos[i].id) {
+                if (novoCarrinho.produtos[i].quantidade > dadosProdutos.produtos[i].quantidade) {
+                    res.json({ erro: `Produto ${novoCarrinho.produtos[i].nome} com quantidade a mais no carrinho do que disponivel em estoque. Apenas ${dadosProdutos.produtos[i].quantidade} estão disponiveis` });
+                }
+            }
+        }
+
+    }
+    const cpf = body.customer.documents.find(x => x.type === 'cpf')
+
+    const verificaEspaco = (string) => string.indexOf(' ') >= 0;
+
+    body.customer.type !== "individual" ? res.json('Nossa Loja apenas atende pessoas físicas. Perdão pelo incomodo') : body.customer.country.length > 2 ? res.json('Digite seu país pelas siglas. ex: br ou pt.') : verificaEspaco === false ? res.json('Obrigatorio Nome e sobrenome!') : isNumber(Number(cpf.number)) === false ? res.json('cpf deve conter apenas numeros') : cpf.number.length !== 11 ? res.json('CPF deve conter 11 digitos')
+        : res.json(`${leitura} COMPRA REALIZADA COM SUCESSO! VOLTE SEMPRE`);
+    for (let i = 0; i < novoCarrinho.produtos.length; i++) {
+        if (novoCarrinho.produtos[i].id === dadosProdutos.produtos[i].id)
+            dadosProdutos.produtos[i].estoque -= novoCarrinho.produtos[i].quantidade;
+    }
+    await fs.writeFile('data.json', JSON.stringify(dadosProdutos));
+    novoCarrinho = {
+        "subTotal": 0,
+        "dataDeEntrega": "",
+        "valorDoFrete": 0,
+        "totalAPagar": 0,
+        "produtos": []
+    }
+    await fs.writeFile('carrinho.json', JSON.stringify(novoCarrinho))
+
+}
 
 module.exports = {
     lerProdutos,
     lerCarrinho,
     adicionarProdutoCarrinho,
-    alterarProdutoCarrinho
+    alterarProdutoCarrinho,
+    removerProdutoCarrinho,
+    deletarCarrinho,
+    finalizarCompra
 }
